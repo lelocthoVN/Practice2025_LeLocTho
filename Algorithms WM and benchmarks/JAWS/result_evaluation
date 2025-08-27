@@ -1,0 +1,25 @@
+# M = 384
+# normalize_corr = 497
+# non-normalize_corr = 455
+
+# M = 256
+# normalize_corr = 450
+# non-normalize_corr = 423
+
+# M = 128
+# normalize_corr = 497
+# non-normalize_corr = 339
+# mean PSNR = 78.8
+
+# M = 64
+# normalize_corr = 492
+# non-normalize_corr = 326
+# mean PSNR =
+
+# M = 32
+# normalize_corr = 0
+# non-normalize_corr = 0
+
+# M = 16
+# normalize_corr = 0
+# non-normalize_corr = 0
