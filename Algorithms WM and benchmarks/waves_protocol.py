@@ -4,8 +4,6 @@ import math
 import os.path
 import numpy as np
 import cv2
-
-# from base_work.data import DataTestModel
 from watermark_system import WatermarkSystem, WatermarkType
 from Distortion.distortion import (DistortionType, jpeg_compress, contract, cut, rotation, resized_crop,
                                    random_erasing, adjust_contrast, gaussian_blur, gaussian_noise)
@@ -44,6 +42,16 @@ distortion_function = {
 
 
 def robustness_by_psnr(dataset, watermark_type, distortion_type, is_using_mask=False):
+    """
+    Evaluate the robustness of a watermarking system against a specific distortion type
+    Arg:
+        dataset: The dataset to evaluate.
+        watermark_type: The type of watermarking to use.
+        distortion_type: The type of distortion to apply.
+        is_using_mask: Whether to use a mask for the watermark.
+    Return:
+        A tuple containing the average PSNR values and the True Positive Rate (TPR) at 0.1% False Positive Rate (FPR).
+    """
     psnr_values = []
     tpr_at_0_1_fpr = []
 
@@ -51,38 +59,26 @@ def robustness_by_psnr(dataset, watermark_type, distortion_type, is_using_mask=F
     distortion_levels_ = distortion_levels[distortion_type]
     distortion_function_ = distortion_function[distortion_type]
 
-    # if is_using_mask:
-    #     mask_path = os.path.join(DATASET_PATH, "Masks")
-    #     dataset_mask = DataTestModel(384, mask_path, is_transformed=False, is_tensor_input=False)
-
     for distortion_level_ in distortion_levels_:
         psnr_values_current_level = []
         scores = []
         y_true = []
         for i in tqdm(range(len_dataset), desc="Processing"):
             np.random.seed(None)
-            if watermark_type == WatermarkType.JAWS or is_using_mask:
+            if is_using_mask:
                 wm_bits = np.random.randint(0, 2, 7)
             else:
                 wm_bits = np.random.randint(0, 2, 32)
             args_wm = (wm_bits, )
             if watermark_type == WatermarkType.DWT_DCT_SVD:
                 args_wm = (wm_bits, 36, 4)
-            elif watermark_type == WatermarkType.MAX_DCT:
-                args_wm = (wm_bits, 36, 4)
             elif watermark_type == WatermarkType.DWT_DCT:
                 args_wm = (6512, wm_bits, 25, 4)
-            elif watermark_type == WatermarkType.JAWS:
-                args_wm = (6512, wm_bits, 128, 0.04)
             elif watermark_type == WatermarkType.LSB:
                 args_wm = (6512, wm_bits, 0, 16)
             wm_sys = WatermarkSystem(watermark_type, args_wm)
             c = dataset[i][:, :, 0]
-
-            # if not is_using_mask:
             mask = np.ones_like(c)
-            # else:
-            #     mask = dataset_mask[i][:, :, 0]//255
             cw = wm_sys.encode((c, mask))
 
             cw = np.clip(cw, 0, 255)
@@ -97,21 +93,12 @@ def robustness_by_psnr(dataset, watermark_type, distortion_type, is_using_mask=F
             psnr_cw = utils.calculate_psnr(cw, cw_distorted)
             if psnr_cw == float('inf'):
                 continue
-
-            if watermark_type == WatermarkType.JAWS:
-                extracted_bit, _ = wm_sys.decode((cw_distorted, True))
-            else:
-                extracted_bit = wm_sys.decode((cw_distorted, mask))
+            extracted_bit = wm_sys.decode((cw_distorted, mask))
             score = utils.score_extract(wm_bits, extracted_bit)
             scores.append(score)
             y_true.append(1)
-
-            if watermark_type == WatermarkType.JAWS:
-                extracted_bit_empty_container, _ = wm_sys.decode(
-                    (c_distorted, True))
-            else:
-                extracted_bit_empty_container = wm_sys.decode(
-                    (c_distorted, mask))
+            extracted_bit_empty_container = wm_sys.decode(
+                (c_distorted, mask))
             score_empty_container = utils.score_extract(
                 wm_bits, extracted_bit_empty_container)
             scores.append(score_empty_container)
@@ -140,55 +127,18 @@ def robustness_by_psnr(dataset, watermark_type, distortion_type, is_using_mask=F
     print(f"Data has been saved to {output_file}")
 
 
-def generate_square_mask_grid(image, num_clusters, area_fraction):
-    H, W = image.shape[:2]
-    total_pixels = H * W
-    target_area = area_fraction * total_pixels
-
-    area_per_square = target_area / num_clusters
-    side_float = math.sqrt(area_per_square)
-    side = int(math.floor(side_float))
-
-    if side < 1:
-        raise ValueError(
-            "Kích thước hình vuông quá nhỏ (side < 1). Hãy tăng area_fraction hoặc giảm num_clusters")
-    if side > min(H, W):
-        raise ValueError(
-            "Kích thước hình vuông lớn hơn ảnh. Giảm area_fraction hoặc num_clusters")
-
-    per_row = W // side
-    max_rows = H // side
-    capacity = per_row * max_rows
-    if capacity < num_clusters:
-        raise ValueError(
-            f"Không đủ chỗ đặt {num_clusters} hình vuông (chỉ đặt được {capacity}). Giảm side, area_fraction hoặc num_clusters")
-
-    mask = np.zeros((H, W), dtype=np.uint8)
-
-    for i in range(num_clusters):
-        row = i // per_row
-        col = i % per_row
-        x1 = col * side
-        y1 = row * side
-        x2 = x1 + side
-        y2 = y1 + side
-        cv2.rectangle(mask, (x1, y1), (x2, y2), color=1, thickness=-1)
-
-    return mask
-
-
 def load_dataset_images(image_dir, size=(384, 384), limit=50):
-    # """
-    # Đọc và resize ảnh RGB từ thư mục, trả về list NumPy arrays.
+    """
+    Read and resize RGB images from a directory, return a list of NumPy arrays.
 
-    # Args:
-    #     image_dir (str or Path): Đường dẫn đến thư mục ảnh.
-    #     size (tuple): Kích thước cần resize về (width, height).
-    #     limit (int): Số ảnh cần đọc (nếu có).
+    Args:
+        image_dir (str or Path): Path to the image directory.
+        size (tuple): Target resize size (width, height).
+        limit (int): Number of images to read (if any).
 
-    # Returns:
-    #     List[np.ndarray]: Danh sách ảnh RGB dạng (H, W, 3)
-    # """
+    Returns:
+        List[np.ndarray]: List of RGB images as (H, W, 3) arrays.
+    """
     image_dir = Path(image_dir)
     dataset = []
     supported_exts = (".png", ".jpg", ".jpeg")
@@ -213,40 +163,9 @@ def load_dataset_images(image_dir, size=(384, 384), limit=50):
 
 
 if __name__ == '__main__':
-    # img_path = "../dataset/Water Bodies Dataset/Images/water_body_3.jpg"
-    # masks_path = "../dataset/Water Bodies Dataset/Masks/water_body_3.jpg"
-
-    # for percent in np.arange(0.0001, 0.001, 0.0001):
-    #     rho = 0
-    #     for i in range(5):
-    #         np.random.seed(None)
-    #         wm_bits = np.random.randint(0, 2, 14)
-    #         C = cv2.imread(img_path, cv2.IMREAD_UNCHANGED)[2]
-    #         C = np.resize(C, (384, 384)) / 255.
-    #         mask = generate_square_mask_grid(C, 1, percent)
-    #         wm = WatermarkSystem(WatermarkType.JAWS,
-    #                              (6512, wm_bits, 128, 0.04))
-    #         Cw = wm.encode((C, mask))
-    #         extract, _ = wm.decode((Cw, True))
-
-    #         # print(wm_bits)
-    #         # print(extract)
-
-    #         rho += utils.score_extract(wm_bits, extract)
-
-    #     print(rho/5, percent)
-
     dataset = load_dataset_images(DATASET_PATH, size=(384, 384), limit=50)
 
-    # robustness_by_psnr(dataset, watermark_type=WatermarkType.DWT_DCT_SVD,
-    #                    distortion_type=DistortionType.JPEG_COMPRESSION)
-    # robustness_by_psnr(dataset, watermark_type=WatermarkType.DWT_DCT_SVD,
-    #                    distortion_type=DistortionType.CONTRAST)
-    # robustness_by_psnr(dataset, watermark_type=WatermarkType.DWT_DCT_SVD,
-    #                    distortion_type=DistortionType.CUT)
-    # robustness_by_psnr(dataset, watermark_type=WatermarkType.DWT_DCT_SVD,
-    #                    distortion_type=DistortionType.ROTATION)
-
+    # --------------- LSB --------------
     robustness_by_psnr(dataset, watermark_type=WatermarkType.LSB,
                        distortion_type=DistortionType.JPEG_COMPRESSION)
     robustness_by_psnr(dataset, watermark_type=WatermarkType.LSB,
@@ -255,12 +174,18 @@ if __name__ == '__main__':
                        distortion_type=DistortionType.CUT)
     robustness_by_psnr(dataset, watermark_type=WatermarkType.LSB,
                        distortion_type=DistortionType.ROTATION)
+    robustness_by_psnr(dataset, watermark_type=WatermarkType.LSB,
+                       distortion_type=DistortionType.RESIZED_CROP)
+    robustness_by_psnr(dataset, watermark_type=WatermarkType.LSB,
+                       distortion_type=DistortionType.RANDOM_ERASING)
+    robustness_by_psnr(dataset, watermark_type=WatermarkType.LSB,
+                       distortion_type=DistortionType.ADJUST_CONTRAST)
+    robustness_by_psnr(dataset, watermark_type=WatermarkType.LSB,
+                       distortion_type=DistortionType.GAUSSIAN_BLUR)
+    robustness_by_psnr(dataset, watermark_type=WatermarkType.LSB,
+                       distortion_type=DistortionType.GAUSSIAN_NOISE)
 
-    # robustness_by_psnr(dataset, watermark_type=WatermarkType.MAX_DCT, distortion_type=DistortionType.JPEG_COMPRESSION)
-    # robustness_by_psnr(dataset, watermark_type=WatermarkType.MAX_DCT, distortion_type=DistortionType.CONTRAST)
-    # robustness_by_psnr(dataset, watermark_type=WatermarkType.MAX_DCT, distortion_type=DistortionType.CUT)
-    # robustness_by_psnr(dataset, watermark_type=WatermarkType.MAX_DCT, distortion_type=DistortionType.ROTATION)
-
+    # --------------- DWT_DCT --------------
     # robustness_by_psnr(dataset, watermark_type=WatermarkType.DWT_DCT,
     #                    distortion_type=DistortionType.JPEG_COMPRESSION)
     # robustness_by_psnr(dataset, watermark_type=WatermarkType.DWT_DCT,
@@ -269,91 +194,33 @@ if __name__ == '__main__':
     #                    distortion_type=DistortionType.CUT)
     # robustness_by_psnr(dataset, watermark_type=WatermarkType.DWT_DCT,
     #                    distortion_type=DistortionType.ROTATION)
+    # robustness_by_psnr(dataset, watermark_type=WatermarkType.DWT_DCT,
+    #                    distortion_type=DistortionType.RESIZED_CROP)
+    # robustness_by_psnr(dataset, watermark_type=WatermarkType.DWT_DCT,
+    #                    distortion_type=DistortionType.RANDOM_ERASING)
+    # robustness_by_psnr(dataset, watermark_type=WatermarkType.DWT_DCT,
+    #                    distortion_type=DistortionType.ADJUST_CONTRAST)
+    # robustness_by_psnr(dataset, watermark_type=WatermarkType.DWT_DCT,
+    #                    distortion_type=DistortionType.GAUSSIAN_BLUR)
+    # robustness_by_psnr(dataset, watermark_type=WatermarkType.DWT_DCT,
+    #                    distortion_type=DistortionType.GAUSSIAN_NOISE)
 
-    # robustness_by_psnr(dataset, watermark_type=WatermarkType.JAWS, distortion_type=DistortionType.JPEG_COMPRESSION)
-    # robustness_by_psnr(dataset, watermark_type=WatermarkType.JAWS, distortion_type=DistortionType.CONTRAST)
-    # robustness_by_psnr(dataset, watermark_type=WatermarkType.JAWS, distortion_type=DistortionType.CUT)
-    # robustness_by_psnr(dataset, watermark_type=WatermarkType.JAWS, distortion_type=DistortionType.ROTATION)
-
-    # robustness_by_psnr(dataset, watermark_type=WatermarkType.JAWS, distortion_type=DistortionType.RESIZED_CROP, is_using_mask=False)
-    # robustness_by_psnr(dataset, watermark_type=WatermarkType.DWT_DCT, distortion_type=DistortionType.RESIZED_CROP, is_using_mask=False)
-    # robustness_by_psnr(dataset, watermark_type=WatermarkType.DWT_DCT_SVD, distortion_type=DistortionType.RESIZED_CROP, is_using_mask=False)
-    # robustness_by_psnr(dataset, watermark_type=WatermarkType.MAX_DCT, distortion_type=DistortionType.RESIZED_CROP, is_using_mask=False)
-
-    # robustness_by_psnr(dataset, watermark_type=WatermarkType.JAWS, distortion_type=DistortionType.RANDOM_ERASING, is_using_mask=False)
-    # robustness_by_psnr(dataset, watermark_type=WatermarkType.DWT_DCT, distortion_type=DistortionType.RANDOM_ERASING, is_using_mask=False)
-    # robustness_by_psnr(dataset, watermark_type=WatermarkType.DWT_DCT_SVD, distortion_type=DistortionType.RANDOM_ERASING, is_using_mask=False)
-    # robustness_by_psnr(dataset, watermark_type=WatermarkType.MAX_DCT, distortion_type=DistortionType.RANDOM_ERASING, is_using_mask=False)
-
-    # robustness_by_psnr(dataset, watermark_type=WatermarkType.JAWS, distortion_type=DistortionType.ADJUST_CONTRAST, is_using_mask=False)
-    # robustness_by_psnr(dataset, watermark_type=WatermarkType.DWT_DCT, distortion_type=DistortionType.ADJUST_CONTRAST, is_using_mask=False)
-    # robustness_by_psnr(dataset, watermark_type=WatermarkType.DWT_DCT_SVD, distortion_type=DistortionType.ADJUST_CONTRAST, is_using_mask=False)
-    # robustness_by_psnr(dataset, watermark_type=WatermarkType.MAX_DCT, distortion_type=DistortionType.ADJUST_CONTRAST, is_using_mask=False)
-
-    # robustness_by_psnr(dataset, watermark_type=WatermarkType.JAWS, distortion_type=DistortionType.GAUSSIAN_BLUR, is_using_mask=False)
-    # robustness_by_psnr(dataset, watermark_type=WatermarkType.DWT_DCT, distortion_type=DistortionType.GAUSSIAN_BLUR, is_using_mask=False)
-    # robustness_by_psnr(dataset, watermark_type=WatermarkType.DWT_DCT_SVD, distortion_type=DistortionType.GAUSSIAN_BLUR, is_using_mask=False)
-    # robustness_by_psnr(dataset, watermark_type=WatermarkType.MAX_DCT, distortion_type=DistortionType.GAUSSIAN_BLUR, is_using_mask=False)
-    #
-    # robustness_by_psnr(dataset, watermark_type=WatermarkType.JAWS, distortion_type=DistortionType.GAUSSIAN_NOISE, is_using_mask=False)
-    # robustness_by_psnr(dataset, watermark_type=WatermarkType.DWT_DCT, distortion_type=DistortionType.GAUSSIAN_NOISE, is_using_mask=False)
-    # robustness_by_psnr(dataset, watermark_type=WatermarkType.DWT_DCT_SVD, distortion_type=DistortionType.GAUSSIAN_NOISE, is_using_mask=False)
-    # robustness_by_psnr(dataset, watermark_type=WatermarkType.MAX_DCT, distortion_type=DistortionType.GAUSSIAN_NOISE, is_using_mask=False)
-
-    # ------------------------------------------ Now with mask ------------------------------------------
-
-    # robustness_by_psnr(dataset, watermark_type=WatermarkType.DWT_DCT_SVD, distortion_type=DistortionType.JPEG_COMPRESSION, is_using_mask=True)
-    # robustness_by_psnr(dataset, watermark_type=WatermarkType.DWT_DCT_SVD, distortion_type=DistortionType.CONTRAST, is_using_mask=True)
-    # robustness_by_psnr(dataset, watermark_type=WatermarkType.DWT_DCT_SVD, distortion_type=DistortionType.CUT, is_using_mask=True)
-    # robustness_by_psnr(dataset, watermark_type=WatermarkType.DWT_DCT_SVD, distortion_type=DistortionType.ROTATION, is_using_mask=True)
-
-    # robustness_by_psnr(dataset, watermark_type=WatermarkType.DWT_DCT, distortion_type=DistortionType.JPEG_COMPRESSION, is_using_mask=True)
-    # robustness_by_psnr(dataset, watermark_type=WatermarkType.DWT_DCT, distortion_type=DistortionType.CONTRAST, is_using_mask=True)
-    # robustness_by_psnr(dataset, watermark_type=WatermarkType.DWT_DCT, distortion_type=DistortionType.CUT, is_using_mask=True)
-    # robustness_by_psnr(dataset, watermark_type=WatermarkType.DWT_DCT, distortion_type=DistortionType.ROTATION, is_using_mask=True)
-
-    # robustness_by_psnr(dataset, watermark_type=WatermarkType.JAWS, distortion_type=DistortionType.JPEG_COMPRESSION, is_using_mask=True)
-    # robustness_by_psnr(dataset, watermark_type=WatermarkType.JAWS, distortion_type=DistortionType.CONTRAST, is_using_mask=True)
-    # robustness_by_psnr(dataset, watermark_type=WatermarkType.JAWS, distortion_type=DistortionType.CUT, is_using_mask=True)
-    # robustness_by_psnr(dataset, watermark_type=WatermarkType.JAWS, distortion_type=DistortionType.ROTATION, is_using_mask=True)
-
-    # robustness_by_psnr(dataset,watermark_type=WatermarkType.MAX_DCT, distortion_type=DistortionType.JPEG_COMPRESSION, is_using_mask=True)
-    # robustness_by_psnr(dataset, watermark_type=WatermarkType.MAX_DCT, distortion_type=DistortionType.CONTRAST, is_using_mask=True)
-    # robustness_by_psnr(dataset, watermark_type=WatermarkType.MAX_DCT, distortion_type=DistortionType.CUT, is_using_mask=True)
-    # robustness_by_psnr(dataset, watermark_type=WatermarkType.MAX_DCT, distortion_type=DistortionType.ROTATION, is_using_mask=True)
-
-    # robustness_by_psnr(dataset, watermark_type=WatermarkType.JAWS, distortion_type=DistortionType.RESIZED_CROP, is_using_mask=True)
-    # robustness_by_psnr(dataset, watermark_type=WatermarkType.DWT_DCT, distortion_type=DistortionType.RESIZED_CROP, is_using_mask=True)
-    # robustness_by_psnr(dataset, watermark_type=WatermarkType.DWT_DCT_SVD, distortion_type=DistortionType.RESIZED_CROP, is_using_mask=True)
-    # robustness_by_psnr(dataset, watermark_type=WatermarkType.MAX_DCT, distortion_type=DistortionType.RESIZED_CROP, is_using_mask=True)
-
-    # robustness_by_psnr(dataset, watermark_type=WatermarkType.JAWS, distortion_type=DistortionType.RANDOM_ERASING, is_using_mask=True)
-    # robustness_by_psnr(dataset, watermark_type=WatermarkType.DWT_DCT, distortion_type=DistortionType.RANDOM_ERASING, is_using_mask=True)
-    # robustness_by_psnr(dataset, watermark_type=WatermarkType.DWT_DCT_SVD, distortion_type=DistortionType.RANDOM_ERASING, is_using_mask=True)
-    # robustness_by_psnr(dataset, watermark_type=WatermarkType.MAX_DCT, distortion_type=DistortionType.RANDOM_ERASING, is_using_mask=True)
-
-    # robustness_by_psnr(dataset, watermark_type=WatermarkType.JAWS, distortion_type=DistortionType.ADJUST_CONTRAST, is_using_mask=True)
-    # robustness_by_psnr(dataset, watermark_type=WatermarkType.DWT_DCT, distortion_type=DistortionType.ADJUST_CONTRAST, is_using_mask=True)
-    # robustness_by_psnr(dataset, watermark_type=WatermarkType.DWT_DCT_SVD, distortion_type=DistortionType.ADJUST_CONTRAST, is_using_mask=True)
-    # robustness_by_psnr(dataset, watermark_type=WatermarkType.MAX_DCT, distortion_type=DistortionType.ADJUST_CONTRAST, is_using_mask=True)
-
-    # robustness_by_psnr(dataset, watermark_type=WatermarkType.JAWS, distortion_type=DistortionType.GAUSSIAN_BLUR, is_using_mask=True)
-    # robustness_by_psnr(dataset, watermark_type=WatermarkType.DWT_DCT, distortion_type=DistortionType.GAUSSIAN_BLUR, is_using_mask=True)
-    # robustness_by_psnr(dataset, watermark_type=WatermarkType.DWT_DCT_SVD, distortion_type=DistortionType.GAUSSIAN_BLUR, is_using_mask=True)
-    # robustness_by_psnr(dataset, watermark_type=WatermarkType.MAX_DCT, distortion_type=DistortionType.GAUSSIAN_BLUR, is_using_mask=True)
-    #
-    # robustness_by_psnr(dataset, watermark_type=WatermarkType.JAWS, distortion_type=DistortionType.GAUSSIAN_NOISE, is_using_mask=True)
-    # robustness_by_psnr(dataset, watermark_type=WatermarkType.DWT_DCT, distortion_type=DistortionType.GAUSSIAN_NOISE, is_using_mask=True)
-    # robustness_by_psnr(dataset, watermark_type=WatermarkType.DWT_DCT_SVD, distortion_type=DistortionType.GAUSSIAN_NOISE, is_using_mask=True)
-    # robustness_by_psnr(dataset, watermark_type=WatermarkType.MAX_DCT, distortion_type=DistortionType.GAUSSIAN_NOISE, is_using_mask=True)
-
-    # ------------------------------------------ Now with Regeneration attack ------------------------------------------
-    # regen_attack_by_psnr(dataset, watermark_type=WatermarkType.JAWS, regen_attack_type=RegenAttackType.RegenVae, is_using_mask=False)
-    # regen_attack_by_psnr(dataset, watermark_type=WatermarkType.DWT_DCT, regen_attack_type=RegenAttackType.RegenVae, is_using_mask=False)
-    # regen_attack_by_psnr(dataset, watermark_type=WatermarkType.DWT_DCT_SVD, regen_attack_type=RegenAttackType.RegenVae, is_using_mask=False)
-    # regen_attack_by_psnr(dataset, watermark_type=WatermarkType.MAX_DCT, regen_attack_type=RegenAttackType.RegenVae, is_using_mask=False)
-
-    # regen_attack_by_psnr(dataset, watermark_type=WatermarkType.JAWS, regen_attack_type=RegenAttackType.RegenVae, is_using_mask=True)
-    # regen_attack_by_psnr(dataset, watermark_type=WatermarkType.DWT_DCT, regen_attack_type=RegenAttackType.RegenVae, is_using_mask=True)
-    # regen_attack_by_psnr(dataset, watermark_type=WatermarkType.DWT_DCT_SVD, regen_attack_type=RegenAttackType.RegenVae, is_using_mask=True)
-    # regen_attack_by_psnr(dataset, watermark_type=WatermarkType.MAX_DCT, regen_attack_type=RegenAttackType.RegenVae, is_using_mask=True)
+    # --------------- DWT_DCT_SVD --------------
+    # robustness_by_psnr(dataset, watermark_type=WatermarkType.DWT_DCT_SVD,
+    #                    distortion_type=DistortionType.JPEG_COMPRESSION)
+    # robustness_by_psnr(dataset, watermark_type=WatermarkType.DWT_DCT_SVD,
+    #                    distortion_type=DistortionType.CONTRAST)
+    # robustness_by_psnr(dataset, watermark_type=WatermarkType.DWT_DCT_SVD,
+    #                    distortion_type=DistortionType.CUT)
+    # robustness_by_psnr(dataset, watermark_type=WatermarkType.DWT_DCT_SVD,
+    #                    distortion_type=DistortionType.ROTATION)
+    # robustness_by_psnr(dataset, watermark_type=WatermarkType.DWT_DCT_SVD,
+    #                    distortion_type=DistortionType.RESIZED_CROP)
+    # robustness_by_psnr(dataset, watermark_type=WatermarkType.DWT_DCT_SVD,
+    #                    distortion_type=DistortionType.RANDOM_ERASING)
+    # robustness_by_psnr(dataset, watermark_type=WatermarkType.DWT_DCT_SVD,
+    #                    distortion_type=DistortionType.ADJUST_CONTRAST)
+    # robustness_by_psnr(dataset, watermark_type=WatermarkType.DWT_DCT_SVD,
+    #                    distortion_type=DistortionType.GAUSSIAN_BLUR)
+    # robustness_by_psnr(dataset, watermark_type=WatermarkType.DWT_DCT_SVD,
+    #                    distortion_type=DistortionType.GAUSSIAN_NOISE)
