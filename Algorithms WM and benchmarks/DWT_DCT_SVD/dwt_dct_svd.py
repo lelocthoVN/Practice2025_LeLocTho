@@ -15,7 +15,7 @@ class EmbedDwtDctSvd:
     to embed and extract information from a grayscale image.
     """
 
-    def __init__(self, watermarks, scale=25, block=4):
+    def __init__(self, watermarks, scale=25, block=4, subband="HL2", svd_k=2):
         """
         Args:
             watermarks (np.ndarray): A binary array representing the watermark.
@@ -26,6 +26,8 @@ class EmbedDwtDctSvd:
         self._wmLen = len(self._watermarks)
         self._scale = scale
         self._block = block
+        self._subband = subband  # "LL1" or "HL2"
+        self._svd_k = max(1, int(svd_k))
 
         # Use zigzag to select the mid-band frequency range for the 4x4 block
         self._mb_lo = 0.30
@@ -65,28 +67,36 @@ class EmbedDwtDctSvd:
         Returns:
             np.ndarray: The watermarked image.
         """
-        img_to_encode = np.copy(img_grayscale)
-        (row, col) = img_grayscale.shape
-        valid_row = row // 4 * 4
-        valid_col = col // 4 * 4
-        img_to_encode = img_to_encode[:valid_row, :valid_col]
+        img_to_encode = np.copy(img_grayscale).astype(np.float32)
+        H, W = img_to_encode.shape[:2]
+        H = (H // self._block) * self._block
+        W = (W // self._block) * self._block
+        img_to_encode = img_to_encode[:H, :W]
 
         if binary_mask is None:
             mask_cropped = np.ones_like(img_to_encode, dtype=np.float32)
         else:
-            mask_cropped = binary_mask[:valid_row, :valid_col]
+            mask_cropped = binary_mask[:H, :W].astype(np.float32)
 
-        ca1, (h1, v1, d1) = pywt.dwt2(img_to_encode, 'haar')
-        mask_downsampled = cv2.resize(
-            mask_cropped, (ca1.shape[1], ca1.shape[0]
-                           ), interpolation=cv2.INTER_NEAREST
-        )
-        if self._scale > 0:
-            self.encode_frame(ca1, self._scale, mask_downsampled)
-        img_to_encode = pywt.idwt2((ca1, (h1, v1, d1)), 'haar')
-        img_to_encode = np.clip(np.rint(img_to_encode),
-                                0, 255).astype(np.uint8)
-        return img_to_encode
+        if self._subband.upper() == "LL1":
+            # DWT cấp 1 → nhúng ở LL1 (giữ chế độ cũ)
+            LL1, (LH1, HL1, HH1) = pywt.dwt2(img_to_encode, 'haar')
+            mLL = cv2.resize(
+                mask_cropped, (LL1.shape[1], LL1.shape[0]), interpolation=cv2.INTER_NEAREST)
+            self._encode_frame_inplace(LL1, mLL)
+            img_rec = pywt.idwt2((LL1, (LH1, HL1, HH1)), 'haar')
+        else:
+            # DWT cấp 2 → nhúng ở HL2 (công bằng với DWT_DCT)
+            LL1, (LH1, HL1, HH1) = pywt.dwt2(img_to_encode, 'haar')
+            LL2, (LH2, HL2, HH2) = pywt.dwt2(HL1, 'haar')
+            mHL2 = cv2.resize(
+                mask_cropped, (HL2.shape[1], HL2.shape[0]), interpolation=cv2.INTER_NEAREST)
+            self._encode_frame_inplace(HL2, mHL2)
+            HL1_rec = pywt.idwt2((LL2, (LH2, HL2, HH2)), 'haar')
+            img_rec = pywt.idwt2((LL1, (LH1, HL1_rec, HH1)), 'haar')
+
+        img_rec = np.clip(np.rint(img_rec), 0, 255).astype(np.uint8)
+        return img_rec
 
     def decode(self, img_grayscale, binary_mask=None):
         """
@@ -100,122 +110,116 @@ class EmbedDwtDctSvd:
         Returns:
             np.ndarray: The extracted watermark.
         """
-        img_to_decode = np.copy(img_grayscale)
-        (row, col) = img_grayscale.shape
-        valid_row = row // 4 * 4
-        valid_col = col // 4 * 4
-        img_to_decode = img_to_decode[:valid_row, :valid_col]
+        img_to_decode = np.copy(img_grayscale).astype(np.float32)
+        H, W = img_to_decode.shape[:2]
+        H = (H // self._block) * self._block
+        W = (W // self._block) * self._block
+        img_to_decode = img_to_decode[:H, :W]
 
         if binary_mask is None:
             mask_cropped = np.ones_like(img_to_decode, dtype=np.float32)
         else:
-            mask_cropped = binary_mask[:valid_row, :valid_col]
+            mask_cropped = binary_mask[:H, :W].astype(np.float32)
 
-        ca1, (h1, v1, d1) = pywt.dwt2(img_to_decode, 'haar')
-        mask_downsampled = cv2.resize(
-            mask_cropped, (ca1.shape[1], ca1.shape[0]
-                           ), interpolation=cv2.INTER_NEAREST
-        )
+        if self._subband.upper() == "LL1":
+            LL1, (LH1, HL1, HH1) = pywt.dwt2(img_to_decode, 'haar')
+            mLL = cv2.resize(
+                mask_cropped, (LL1.shape[1], LL1.shape[0]), interpolation=cv2.INTER_NEAREST)
+            scores = self._decode_frame(LL1, mLL)
+        else:
+            LL1, (LH1, HL1, HH1) = pywt.dwt2(img_to_decode, 'haar')
+            LL2, (LH2, HL2, HH2) = pywt.dwt2(HL1, 'haar')
+            mHL2 = cv2.resize(
+                mask_cropped, (HL2.shape[1], HL2.shape[0]), interpolation=cv2.INTER_NEAREST)
+            scores = self._decode_frame(HL2, mHL2)
 
-        scores = [[] for _ in range(self._wmLen)]
-        scores = self.decode_frame(ca1, self._scale, scores, mask_downsampled)
-        avgScores = [np.array(s).mean() if len(s) > 0 else 0 for s in scores]
+        # gom theo vị trí (nhóm r), rồi threshold như cũ
+        avgScores = [np.mean(s) if len(s) else 0 for s in scores]
         bits = (np.array(avgScores) * 255 > 127).astype(np.uint8)
-        return np.array(bits)
+        return bits
 
-    def encode_frame(self, frame, scale, binary_mask):
+    def _encode_frame_inplace(self, frame, mask_down):
         """
         Encodes the watermark into a single DWT subband.
 
         Args:
             frame (np.ndarray): The DWT subband (e.g., LL1).
-            scale (float): Quantization step size.
-            binary_mask (np.ndarray): The downsampled binary mask.
+            mask_down (np.ndarray): The downsampled binary mask.
         """
-        (row, col) = frame.shape
+        H, W = frame.shape
         num = 0
-        for i in range(row // self._block):
-            for j in range(col // self._block):
-                block = frame[i * self._block:(i + 1) * self._block,
-                              j * self._block:(j + 1) * self._block]
-                mask_block = binary_mask[i * self._block:(i + 1) * self._block,
-                                         j * self._block:(j + 1) * self._block]
-                if np.mean(mask_block) > 0.5:
-                    wmBit = self._watermarks[num % self._wmLen]
-                    diffusedBlock = self.diffuse_dct_svd(block, wmBit, scale)
-                    frame[i * self._block:(i + 1) * self._block,
-                          j * self._block:(j + 1) * self._block] = diffusedBlock
+        for i in range(H // self._block):
+            for j in range(W // self._block):
+                block = frame[i*self._block:(i+1)*self._block,
+                              j*self._block:(j+1)*self._block]
+                mblk = mask_down[i*self._block:(i+1)*self._block,
+                                 j*self._block:(j+1)*self._block]
+                if np.mean(mblk) > 0.5:
+                    wmBit = int(self._watermarks[num % self._wmLen])
+                    frame[i*self._block:(i+1)*self._block,
+                          j*self._block:(j+1)*self._block] = self._embed_block_dct_svd(block, wmBit)
                 num += 1
 
-    def decode_frame(self, frame, scale, scores, binary_mask):
+    def _decode_frame(self, frame, mask_down):
         """
         Decodes the watermark from a single DWT subband.
 
         Args:
             frame (np.ndarray): The watermarked DWT subband.
-            scale (float): Quantization step size.
-            scores (list): A list to store correlation scores for each bit.
-            binary_mask (np.ndarray): The downsampled binary mask.
+            mask_down (np.ndarray): The downsampled binary mask.
 
         Returns:
             list: The updated scores list.
         """
-        (row, col) = frame.shape
+        H, W = frame.shape
+        scores = [[] for _ in range(self._wmLen)]
         num = 0
-        for i in range(row // self._block):
-            for j in range(col // self._block):
-                block = frame[i * self._block:(i + 1) * self._block,
-                              j * self._block:(j + 1) * self._block]
-                mask_block = binary_mask[i * self._block:(i + 1) * self._block,
-                                         j * self._block:(j + 1) * self._block]
-                if np.mean(mask_block) > 0.5:
-                    score = self.infer_dct_svd(block, scale)
-                    wmBit = num % self._wmLen
-                    scores[wmBit].append(score)
+        for i in range(H // self._block):
+            for j in range(W // self._block):
+                block = frame[i*self._block:(i+1)*self._block,
+                              j*self._block:(j+1)*self._block]
+                mblk = mask_down[i*self._block:(i+1)*self._block,
+                                 j*self._block:(j+1)*self._block]
+                if np.mean(mblk) > 0.5:
+                    score = self._infer_block_dct_svd(block)
+                    idx = num % self._wmLen
+                    scores[idx].append(score)
                 num += 1
         return scores
 
     # ================= DCT+SVD =================
-    @staticmethod
-    def _idct_from_dct_matrix(dct_mat):
-        """
-        Performs a block-based IDCT.
-        """
-        return cv2.idct(dct_mat.astype(np.float32))
-
-    def diffuse_dct_svd(self, block, wmBit, scale):
-        """
-        Embeds a single watermark bit into a block's mid-band frequencies
-        by modifying the largest singular value.
-        """
-        # DCT
-        dct_block = cv2.dct(np.float32(block))
-        masked = np.zeros_like(dct_block, dtype=np.float32)
+    def _embed_block_dct_svd(self, block, wmBit):
+        dct_blk = cv2.dct(block.astype(np.float32))
+        masked = np.zeros_like(dct_blk, dtype=np.float32)
         for (x, y) in self._mb_idx:
-            masked[x, y] = dct_block[x, y]
-        # SVD on the mid-band part
-        u, s, v = np.linalg.svd(masked, full_matrices=False)
-        s[0] = (s[0] // scale + 0.25 + 0.5 * int(wmBit)) * scale
-        masked_mod = (u @ np.diag(s) @ v).astype(np.float32)
-        dct_mod = dct_block.copy()
+            masked[x, y] = dct_blk[x, y]
+
+        U, S, Vt = np.linalg.svd(masked, full_matrices=False)
+
+        K = min(self._svd_k, len(S))
+        for k in range(K):
+            S[k] = (np.floor(S[k] / self._scale) +
+                    0.25 + 0.5 * wmBit) * self._scale
+
+        masked_mod = (U @ np.diag(S) @ Vt).astype(np.float32)
+        dct_mod = dct_blk.copy()
         for (x, y) in self._mb_idx:
             dct_mod[x, y] = masked_mod[x, y]
-        return self._idct_from_dct_matrix(dct_mod)
 
-    def infer_dct_svd(self, block, scale):
-        """
-        Decodes a single watermark bit from a block by analyzing the
-        quantization of the largest singular value.
-        """
-        dct_block = cv2.dct(np.float32(block))
+        return cv2.idct(dct_mod)
 
-        masked = np.zeros_like(dct_block, dtype=np.float32)
+    def _infer_block_dct_svd(self, block):
+        dct_blk = cv2.dct(block.astype(np.float32))
+        masked = np.zeros_like(dct_blk, dtype=np.float32)
         for (x, y) in self._mb_idx:
-            masked[x, y] = dct_block[x, y]
+            masked[x, y] = dct_blk[x, y]
 
-        u, s, v = np.linalg.svd(masked, full_matrices=False)
-        # Check which quantization interval s[0] falls into
-        return int((s[0] % scale) > scale * 0.5)
+        U, S, Vt = np.linalg.svd(masked, full_matrices=False)
+
+        K = min(self._svd_k, len(S))
+        votes = [(S[k] % self._scale) > (0.5 * self._scale) for k in range(K)]
+
+        return int(np.mean(votes) > 0.5)
 
 
 if __name__ == "__main__":

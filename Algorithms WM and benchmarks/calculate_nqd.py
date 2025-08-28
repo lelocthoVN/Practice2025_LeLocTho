@@ -102,7 +102,7 @@ def draw_data_chart_2(json_path="data_metrics_psnr_THO.json", mask_key="no_mask"
         loaded_data = json.load(f)
 
     labels = [
-        'AdjustBrightness', 'JPEG Compression', 'Rotation', 'ResizeCrop',
+        'AdjustBrightness', 'JPEG Compression', 'Rotation', 'ResizeCrop', 'Cut',
         'RandomErasing', 'AdjustContrast', 'GaussianBlur', 'GaussianNoise',
     ]
     num_vars = len(labels)
@@ -192,7 +192,7 @@ def plot_overall_metric(values_dict, metric_name="Average PSNR (dB)", title=None
 
 
 if __name__ == "__main__":
-    with open("data_metrics_psnr_THO.json", "r") as f:
+    with open("data_metrics_psnr_1.json", "r") as f:
         loaded_data = json.load(f)
 
     # ----  Print average PSNR  ----
@@ -223,4 +223,4 @@ if __name__ == "__main__":
     calculate_normalized_quality_degradation(
         wm_list, percentile_10, percentile_90)
 
-    draw_data_chart_2("data_metrics_psnr_THO.json", mask_key="no_mask")
+    draw_data_chart_2("data_metrics_psnr_1.json", mask_key="no_mask")

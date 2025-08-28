@@ -166,24 +166,24 @@ if __name__ == '__main__':
     dataset = load_dataset_images(DATASET_PATH, size=(384, 384), limit=50)
 
     # --------------- LSB --------------
-    robustness_by_psnr(dataset, watermark_type=WatermarkType.LSB,
-                       distortion_type=DistortionType.JPEG_COMPRESSION)
-    robustness_by_psnr(dataset, watermark_type=WatermarkType.LSB,
-                       distortion_type=DistortionType.CONTRAST)
-    robustness_by_psnr(dataset, watermark_type=WatermarkType.LSB,
-                       distortion_type=DistortionType.CUT)
-    robustness_by_psnr(dataset, watermark_type=WatermarkType.LSB,
-                       distortion_type=DistortionType.ROTATION)
-    robustness_by_psnr(dataset, watermark_type=WatermarkType.LSB,
-                       distortion_type=DistortionType.RESIZED_CROP)
-    robustness_by_psnr(dataset, watermark_type=WatermarkType.LSB,
-                       distortion_type=DistortionType.RANDOM_ERASING)
-    robustness_by_psnr(dataset, watermark_type=WatermarkType.LSB,
-                       distortion_type=DistortionType.ADJUST_CONTRAST)
-    robustness_by_psnr(dataset, watermark_type=WatermarkType.LSB,
-                       distortion_type=DistortionType.GAUSSIAN_BLUR)
-    robustness_by_psnr(dataset, watermark_type=WatermarkType.LSB,
-                       distortion_type=DistortionType.GAUSSIAN_NOISE)
+    # robustness_by_psnr(dataset, watermark_type=WatermarkType.LSB,
+    #                    distortion_type=DistortionType.JPEG_COMPRESSION)
+    # robustness_by_psnr(dataset, watermark_type=WatermarkType.LSB,
+    #                    distortion_type=DistortionType.CONTRAST)
+    # robustness_by_psnr(dataset, watermark_type=WatermarkType.LSB,
+    #                    distortion_type=DistortionType.CUT)
+    # robustness_by_psnr(dataset, watermark_type=WatermarkType.LSB,
+    #                    distortion_type=DistortionType.ROTATION)
+    # robustness_by_psnr(dataset, watermark_type=WatermarkType.LSB,
+    #                    distortion_type=DistortionType.RESIZED_CROP)
+    # robustness_by_psnr(dataset, watermark_type=WatermarkType.LSB,
+    #                    distortion_type=DistortionType.RANDOM_ERASING)
+    # robustness_by_psnr(dataset, watermark_type=WatermarkType.LSB,
+    #                    distortion_type=DistortionType.ADJUST_CONTRAST)
+    # robustness_by_psnr(dataset, watermark_type=WatermarkType.LSB,
+    #                    distortion_type=DistortionType.GAUSSIAN_BLUR)
+    # robustness_by_psnr(dataset, watermark_type=WatermarkType.LSB,
+    #                    distortion_type=DistortionType.GAUSSIAN_NOISE)
 
     # --------------- DWT_DCT --------------
     # robustness_by_psnr(dataset, watermark_type=WatermarkType.DWT_DCT,
@@ -206,21 +206,21 @@ if __name__ == '__main__':
     #                    distortion_type=DistortionType.GAUSSIAN_NOISE)
 
     # --------------- DWT_DCT_SVD --------------
-    # robustness_by_psnr(dataset, watermark_type=WatermarkType.DWT_DCT_SVD,
-    #                    distortion_type=DistortionType.JPEG_COMPRESSION)
-    # robustness_by_psnr(dataset, watermark_type=WatermarkType.DWT_DCT_SVD,
-    #                    distortion_type=DistortionType.CONTRAST)
-    # robustness_by_psnr(dataset, watermark_type=WatermarkType.DWT_DCT_SVD,
-    #                    distortion_type=DistortionType.CUT)
-    # robustness_by_psnr(dataset, watermark_type=WatermarkType.DWT_DCT_SVD,
-    #                    distortion_type=DistortionType.ROTATION)
-    # robustness_by_psnr(dataset, watermark_type=WatermarkType.DWT_DCT_SVD,
-    #                    distortion_type=DistortionType.RESIZED_CROP)
-    # robustness_by_psnr(dataset, watermark_type=WatermarkType.DWT_DCT_SVD,
-    #                    distortion_type=DistortionType.RANDOM_ERASING)
-    # robustness_by_psnr(dataset, watermark_type=WatermarkType.DWT_DCT_SVD,
-    #                    distortion_type=DistortionType.ADJUST_CONTRAST)
-    # robustness_by_psnr(dataset, watermark_type=WatermarkType.DWT_DCT_SVD,
-    #                    distortion_type=DistortionType.GAUSSIAN_BLUR)
-    # robustness_by_psnr(dataset, watermark_type=WatermarkType.DWT_DCT_SVD,
-    #                    distortion_type=DistortionType.GAUSSIAN_NOISE)
+    robustness_by_psnr(dataset, watermark_type=WatermarkType.DWT_DCT_SVD,
+                       distortion_type=DistortionType.JPEG_COMPRESSION)
+    robustness_by_psnr(dataset, watermark_type=WatermarkType.DWT_DCT_SVD,
+                       distortion_type=DistortionType.CONTRAST)
+    robustness_by_psnr(dataset, watermark_type=WatermarkType.DWT_DCT_SVD,
+                       distortion_type=DistortionType.CUT)
+    robustness_by_psnr(dataset, watermark_type=WatermarkType.DWT_DCT_SVD,
+                       distortion_type=DistortionType.ROTATION)
+    robustness_by_psnr(dataset, watermark_type=WatermarkType.DWT_DCT_SVD,
+                       distortion_type=DistortionType.RESIZED_CROP)
+    robustness_by_psnr(dataset, watermark_type=WatermarkType.DWT_DCT_SVD,
+                       distortion_type=DistortionType.RANDOM_ERASING)
+    robustness_by_psnr(dataset, watermark_type=WatermarkType.DWT_DCT_SVD,
+                       distortion_type=DistortionType.ADJUST_CONTRAST)
+    robustness_by_psnr(dataset, watermark_type=WatermarkType.DWT_DCT_SVD,
+                       distortion_type=DistortionType.GAUSSIAN_BLUR)
+    robustness_by_psnr(dataset, watermark_type=WatermarkType.DWT_DCT_SVD,
+                       distortion_type=DistortionType.GAUSSIAN_NOISE)
